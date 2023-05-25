@@ -70,9 +70,14 @@ int fs_mount(const char *diskname)
     FAT = malloc((int)sb.FAT_blocks * sizeof(struct FAT_block));
 
     // Read FAT from virtual disk
+	for (int i = 0; i < (int)sb.FAT_blocks; i++) {
+		block_read(i + 1, &FAT[i]);
+	}
 
+	// Read root directory from virtual disk
+	block_read(sb.root_dir_idx, &root_dir);
 
-
+	printf("Created virtual disk '%s' with '%d' data blocks\n", "diskname", (int)(sb.total_data_blks ));
 	//find the diskname (checked)
 	//Open the virtual disk (Checked)
 	//Read the metadata(superbloc, fat, root directory) (Unsured)
@@ -88,6 +93,7 @@ int fs_umount(void)
 		return -1;
 	} 
 
+	free(FAT);
 	return 0;
 	//Close virtual disk(make sure the virtual disk is up to date)
 	//* Return: -1 if no FS is currently mounted, or if the virtual disk cannot be
@@ -97,8 +103,26 @@ int fs_umount(void)
 
 int fs_info(void)
 {
+	// FIXME: need to handle no diskname ("Usage: __") and nonexistant diskname outputs?
+
+	// Error checking: no underlying virtual disk was opened
+	if (block_disk_count() == -1) {
+		return -1;
+	}
+
 	//Show info about volume
 	/* TODO: Phase 1 */
+	printf("FS Info:\n");
+	printf("total_blk_count=%d\n", block_disk_count());
+	printf("fat_blk_count=%d\n", sb.FAT_blocks);
+	printf("rdir_blk=%d\n", sb.root_dir_idx);
+	printf("data_blk=%d\n", sb.data_blks_idx);
+	printf("data_blk_count=%d\n", sb.total_data_blks);
+	// FIXME:
+	// printf("fat_free_ratio=%d/%d\n", );
+	// printf("rdir_free_ratio=%d/%d\n", );
+	
+	return 0;
 }
 
 int fs_create(const char *filename)
@@ -140,6 +164,8 @@ int fs_lseek(int fd, size_t offset)
 int fs_write(int fd, void *buf, size_t count)
 {
 	/* TODO: Phase 4 */
+	//Modify and sycyhn data everytime there is
+	//a change in the data blocks
 }
 
 int fs_read(int fd, void *buf, size_t count)
