@@ -7,21 +7,43 @@
 #include "disk.h"
 #include "fs.h"
 
-struct __attribute__((__packed__)) superblock{
+struct __attribute__((__packed__)) superblock {
 	uint64_t signature;
 	uint16_t total_blocks;
 	uint16_t root_dir_idx;
 	uint16_t data_blks_idx;
 	uint16_t total_data_blks;
 	uint8_t FAT_blocks;
-	// FIXME: block_read potential error - might need something for the unused/padding
+	uint8_t padding[4079];
 };
+
+struct __attribute__((__packed__)) root_dir_entry {
+    uint8_t filename[FS_FILENAME_LEN];
+    uint32_t size;
+    uint16_t data_start_idx;
+    uint8_t padding[10];
+};
+
+// struct __attribute__((__packed__)) root_directory {
+//     struct root_dir_entry files[FS_FILE_MAX_COUNT];
+// };
+
+struct __attribute__((__packed__)) FAT_block {
+    uint16_t entries[BLOCK_SIZE / 2];
+};
+
+
+struct superblock sb;
+// struct root_directory root_dir;
+struct root_dir_entry root_dir[FS_FILE_MAX_COUNT];
+struct FAT_block* FAT;
+
+
 
 /* TODO: Phase 1 */
 
 int fs_mount(const char *diskname)
 {	
-	struct superblock sb;
 	uint64_t expected_signature = 0x4543533135304653;  // "ECS150FS"
 	
 	// Error checking: Virtual file disk @diskname cannot be opened
@@ -37,11 +59,20 @@ int fs_mount(const char *diskname)
 		return -1;
 	}
 
+    // Error checking: total number of blocks is same as block_disk_count() of total
 	int total_number_of_block = 1 + (int)(sb.FAT_blocks)+ 1 + (int)(sb.total_data_blks);
-	 if (total_number_of_block != block_disk_count()) {
+	if (total_number_of_block != block_disk_count()) {
 		printf("Number of blocks do not match\n");
 		return -1;
-	 }
+	}
+
+    // Allocate FAT blocks
+    FAT = malloc((int)sb.FAT_blocks * sizeof(struct FAT_block));
+
+    // Read FAT from virtual disk
+
+
+
 	//find the diskname (checked)
 	//Open the virtual disk (Checked)
 	//Read the metadata(superbloc, fat, root directory) (Unsured)
