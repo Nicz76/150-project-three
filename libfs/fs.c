@@ -41,7 +41,7 @@ struct root_dir_entry root_dir[FS_FILE_MAX_COUNT];
 struct FAT_block* FAT;
 
 int rdir_free_entries;
-
+int total_file_open;
 
 /* TODO: Phase 1 */
 
@@ -104,7 +104,7 @@ int fs_umount(void)
 		return -1;
 	} 
 
-	//free(FAT);
+	free(FAT);
 	return 0;
 	//Close virtual disk(make sure the virtual disk is up to date)
 	//* Return: -1 if no FS is currently mounted, or if the virtual disk cannot be
@@ -215,7 +215,7 @@ int fs_delete(const char *filename)
 	
 
 	// Remove file's contents from FAT 
-	int ptr = root_dir->data_start_idx;
+	int ptr = root_dir[file_idx].data_start_idx;
 	int ptr_content;
 
 	while (ptr != FAT_EOC) {
@@ -236,6 +236,21 @@ int fs_delete(const char *filename)
 
 int fs_ls(void)
 {
+	// Error checking: no underlying virtual disk was opened
+	if (block_disk_count == -1){
+		return -1;
+	}
+
+	printf("FS Ls:\n");
+
+	// Print info for each file in root directory
+	for (int i = 0 ; i < FS_FILE_MAX_COUNT; i++) {
+		if (root_dir[i].filename[0] != '\0') {
+			printf("file: %s, size: %d, data_blk: %d\n", root_dir[i].filename, root_dir[i].size, root_dir[i].data_start_idx);
+		}
+	}
+
+	return 0;
 // 	 * fs_ls - List files on file system
 //  *
 //  * List information about the files located in the root directory.
@@ -244,26 +259,57 @@ int fs_ls(void)
 	/* TODO: Phase 2 */
 }
 
-// int fs_open(const char *filename)
-// {
-// 	/* TODO: Phase 3 */
-// }
+int fs_open(const char *filename)
+{
+	if (block_disk_count == -1 || filename == NULL || total_file_open <= FS_OPEN_MAX_COUNT){
+		return -1;
+	}
+	
+	//Change the global variable to an array to keep track of the file
+	//that are open and need find a way to set the offset if the filename
+	//are the same
 
-// int fs_close(int fd)
-// {
-// 	/* TODO: Phase 3 */
-// }
+	total_file_open++;
+	//If the filename is the same need to change the offset
 
-// int fs_stat(int fd)
-// {
-// 	block_disk_count();
-// 	/* TODO: Phase 3 */
-// }
+	//Need to find the file descriptor
+	return open(filename);
+	/* TODO: Phase 3 */
+// 	* Open file named @filename for reading and writing, and return the
+//  * corresponding file descriptor. The file descriptor is a non-negative integer
+//  * that is used subsequently to access the contents of the file. The file offset
+//  * of the file descriptor is set to 0 initially (beginning of the file). If the
+//  * same file is opened multiple files, fs_open() must return distinct file
+//  * descriptors. A maximum of %FS_OPEN_MAX_COUNT files can be open
+//  * simultaneously.
+//  *
+//  * Return: -1 if no FS is currently mounted, or if @filename is invalid, or if
+//  * there is no file named @filename to open, or if there are already
+//  * %FS_OPEN_MAX_COUNT files currently open. Otherwise, return the file
+//  * descriptor.
+}
 
-// int fs_lseek(int fd, size_t offset)
-// {
-// 	/* TODO: Phase 3 */
-// }
+int fs_close(int fd)
+{
+	if (block_disk_count == -1){
+		return -1;
+	}
+	close(fd);
+	/* TODO: Phase 3 */
+// 	 * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
+//  * invalid (out of bounds or not currently open). 0 otherwise.
+}
+
+int fs_stat(int fd)
+{
+	
+	/* TODO: Phase 3 */
+}
+
+int fs_lseek(int fd, size_t offset)
+{
+	/* TODO: Phase 3 */
+}
 
 // int fs_write(int fd, void *buf, size_t count)
 // {
