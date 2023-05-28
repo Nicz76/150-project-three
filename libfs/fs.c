@@ -26,22 +26,31 @@ struct __attribute__((__packed__)) root_dir_entry {
     uint8_t padding[10];
 };
 
+struct __attribute__((__packed__)) filedes {
+	uint8_t filename[FS_FILENAME_LEN];
+	uint16_t data_start_idx;
+	int offset;
+};
+
 // struct __attribute__((__packed__)) root_directory {
 //     struct root_dir_entry files[FS_FILE_MAX_COUNT];
 // };
 
-struct __attribute__((__packed__)) FAT_block {
-    uint16_t entries[BLOCK_SIZE / 2];
-};
+//Old way of creating a struct for FAT
+// struct __attribute__((__packed__)) FAT_block {
+//     uint16_t entries[BLOCK_SIZE / 2];
+// };
 
 
 struct superblock sb;
 // struct root_directory root_dir;
 struct root_dir_entry root_dir[FS_FILE_MAX_COUNT];
-struct FAT_block* FAT;
+// struct FAT_block* FAT;
+uint16_t* FAT;
 
 int rdir_free_entries;
 int total_file_open;
+struct filedes FDT[FS_OPEN_MAX_COUNT];
 
 /* TODO: Phase 1 */
 
@@ -70,11 +79,13 @@ int fs_mount(const char *diskname)
 	}
 
     // Allocate FAT blocks
-    FAT = malloc((int)sb.FAT_blocks * sizeof(struct FAT_block));
+    // FAT = malloc((int)sb.FAT_blocks * sizeof(struct FAT_block));
+	int entries_per_FAT_block = BLOCK_SIZE / sizeof(uint16_t);
+	FAT = malloc((int)sb.FAT_blocks * entries_per_FAT_block);
 
     // Read FAT from virtual disk
 	for (int i = 0; i < (int)sb.FAT_blocks; i++) {
-		block_read(i + 1, &FAT[i]);
+		block_read(i + 1, &FAT[i * entries_per_FAT_block]);
 	}
 
 	// Read root directory from virtual disk
@@ -86,6 +97,13 @@ int fs_mount(const char *diskname)
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (root_dir[i].filename[0] == '\0')
 			rdir_free_entries++;
+	}
+
+	// Initialize file descriptor table (FDT)
+	// set each filedes to "empty" by initializing first character of filename to null char
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+		FDT[i].filename[0] = '\0';
+		FDT[i].offset = 0;
 	}
 
 	printf("Created virtual disk '%s' with '%d' data blocks\n", "diskname", (int)(sb.total_data_blks ));
@@ -121,6 +139,8 @@ int fs_info(void)
 		return -1;
 	}
 
+//For FAT ratio by Professor
+//for loop to loop all the entries of the FAT table
 	//Show info about volume
 	/* TODO: Phase 1 */
 	printf("FS Info:\n");
@@ -215,13 +235,13 @@ int fs_delete(const char *filename)
 	
 
 	// Remove file's contents from FAT 
-	int ptr = root_dir[file_idx].data_start_idx;
-	int ptr_content;
+	int FAT_file_idx = root_dir[file_idx].data_start_idx;
+	int next_FAT_file_idx;
 
-	while (ptr != FAT_EOC) {
-		ptr_content = FAT->entries[ptr];
-		FAT->entries[ptr] = 0;
-		ptr = ptr_content;
+	while (FAT_file_idx != FAT_EOC) {
+		next_FAT_file_idx = FAT[FAT_file_idx];
+		FAT[FAT_file_idx] = 0;
+		FAT_file_idx = next_FAT_file_idx;
 	}
 	
 	// Remove file's entry from root directory
@@ -261,19 +281,57 @@ int fs_ls(void)
 
 int fs_open(const char *filename)
 {
-	if (block_disk_count == -1 || filename == NULL || total_file_open <= FS_OPEN_MAX_COUNT){
+	// Error checking: no FS mounted or @filename is invalid 
+	// or there are already %FS_OPEN_MAX_COUNT files currently open
+	if (block_disk_count == -1 || filename == NULL || total_file_open >= FS_OPEN_MAX_COUNT) {
 		return -1;
 	}
 	
 	//Change the global variable to an array to keep track of the file
 	//that are open and need find a way to set the offset if the filename
 	//are the same
-
-	total_file_open++;
+	// Find @filename in root_dir
+	int rdir_file_idx = -1;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++){
+		if (root_dir[i].filename == filename) {
+			rdir_file_idx = i;
+			break;
+		}
+	}
+	// Error checking: there is no file named @filename to open, return -1
+	if (rdir_file_idx == -1) {
+		return -1;
+	}
+	
 	//If the filename is the same need to change the offset
+	//Use lseek() function for this problem
 
-	//Need to find the file descriptor
-	return open(filename);
+	// Find first available file descriptor index in FDT
+	int fd;
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+		if (FDT[i].filename[0] == '\0') {
+			fd = i;
+			break;
+		}
+	}
+
+	// Populate the filedes struct for this file (??)
+	strcpy(FDT[fd].filename, root_dir[rdir_file_idx].filename);
+	FDT[fd].data_start_idx = root_dir[rdir_file_idx].data_start_idx;
+	FDT[fd].offset = 0;
+
+	// for (int i = 0; i < total_file_open; i++){
+	// 	if (FDT[i] == fd) {
+	// 		lseek(fd);
+	// 	}
+	// }
+
+	//This adds the fd number to the global array containing 
+	//all current open files descriptors
+	// FDT[total_file_open] = fd;
+	total_file_open++;
+
+	return fd;
 	/* TODO: Phase 3 */
 // 	* Open file named @filename for reading and writing, and return the
 //  * corresponding file descriptor. The file descriptor is a non-negative integer
@@ -291,10 +349,35 @@ int fs_open(const char *filename)
 
 int fs_close(int fd)
 {
-	if (block_disk_count == -1){
+	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open)
+	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0') {
 		return -1;
 	}
-	close(fd);
+
+
+	// int fd_file_idx = -1;
+	// for (int i = 0; i < FS_OPEN_MAX_COUNT; i++){
+	// 	if (FDT[i] == fd) {
+	// 		fd_file_idx = i;
+	// 		break;
+	// 	}
+	// }
+	
+	// //Error Checking : invalid fd
+	// if (fd_file_idx == -1){
+	// 	return -1;
+	// }
+
+
+
+	FDT[fd].filename[0] = '\0';
+	FDT[fd].data_start_idx = 0;
+	FDT[fd].offset = 0;
+
+	total_file_open--;
+	// close(fd);
+	return 0;
+	
 	/* TODO: Phase 3 */
 // 	 * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
 //  * invalid (out of bounds or not currently open). 0 otherwise.
@@ -302,25 +385,88 @@ int fs_close(int fd)
 
 int fs_stat(int fd)
 {
+	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open)
+	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0') {
+		return -1;
+	}
+
+	// Find file in root directory to grab its size
+	uint32_t file_size;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (!strcmp(FDT[fd].filename, root_dir[i].filename)) {
+			file_size = root_dir[i].size;
+			break;
+		}
+	}
 	
+	return file_size;
 	/* TODO: Phase 3 */
+// 	 * fs_stat - Get file status
+//  * @fd: File descriptor
+//  *
+//  * Get the current size of the file pointed by file descriptor @fd.
+//  *
+//  * Return: -1 if no FS is currently mounted, of if file descriptor @fd is
+//  * invalid (out of bounds or not currently open). Otherwise return the current
+//  * size of file.
 }
 
 int fs_lseek(int fd, size_t offset)
 {
+	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open)
+	//                 or @offset is larger than current file size
+	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || offset > fs_stat(fd)) {
+		return -1;
+	}
+
+	FDT[fd].offset = offset;
+
+	return 0;
+
 	/* TODO: Phase 3 */
+// 	* fs_lseek - Set file offset
+//  * @fd: File descriptor
+//  * @offset: File offset
+//  *
+//  * Set the file offset (used for read and write operations) associated with file
+//  * descriptor @fd to the argument @offset. To append to a file, one can call
+//  * fs_lseek(fd, fs_stat(fd));
+//  *
+//  * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
+//  * invalid (i.e., out of bounds, or not currently open), or if @offset is larger
+//  * than the current file size. 0 otherwise.
 }
 
-// int fs_write(int fd, void *buf, size_t count)
-// {
-// 	/* TODO: Phase 4 */
-// 	//Modify and sycyhn data everytime there is
-// 	//a change in the data blocks
-// }
+int fs_write(int fd, void *buf, size_t count)
+{
+	/* TODO: Phase 4 */
+	//Modify and sycyhn data everytime there is
+	//a change in the data blocks
+}
 
-// int fs_read(int fd, void *buf, size_t count)
-// {
-// 	/* TODO: Phase 4 */
-// }
+int fs_read(int fd, void *buf, size_t count)
+{
+	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open) or @buf is NULL
+	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
+		return -1;
+	}
+	
+	// Need a bounce buffer for reading and writing
+	char * bounce;
 
-// 
+// 	 * Attempt to read @count bytes of data from the file referenced by file
+//  * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
+//  * enough to hold at least @count bytes.
+//  *
+//  * The number of bytes read can be smaller than @count if there are less than
+//  * @count bytes until the end of the file (it can even be 0 if the file offset
+//  * is at the end of the file). The file offset of the file descriptor is
+//  * implicitly incremented by the number of bytes that were actually read.
+//  *
+//  * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
+//  * invalid (out of bounds or not currently open), or if @buf is NULL. Otherwise
+//  * return the number of bytes actually read.
+//  */
+	/* TODO: Phase 4 */
+}
+
