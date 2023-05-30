@@ -450,9 +450,143 @@ int fs_read(int fd, void *buf, size_t count)
 	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
 		return -1;
 	}
+
+
+
+
+	// Need a bounce buffer for reading and writing for partial read or write
+	int idx = get_data_block_idx(fd);
+	char bounce[BLOCK_SIZE];
+	int bytes_left = count;
+	int bytes_to_copy = 0;  // number of bytes to copy from bounce into buf
+	int bytes_read = 0;
+	int offset = FDT[fd].offset;
+	// Calculate number of blocks to read (ceiling division)
+	int blocks_to_read = (offset + count) / BLOCK_SIZE + ((offset + count) % BLOCK_SIZE != 0);
+
+	// Part of one or exactly one data block to be read
+	if (blocks_to_read == 1) {
+		block_read(idx, bounce);
+		memcpy(buf, bounce + offset, count);
+		fs_lseek(fd, offset + count);
+	} else { // More than one data block to be read
+		for (int i = 0; i < blocks_to_read && idx != -1; i++) {
+			block_read(idx, bounce);
+			// First data block: offset possibly not aligned with beginning of block
+			if (i == 0) {
+				bytes_to_copy = offset % BLOCK_SIZE;
+				memcpy(buf, offset % BLOCK_SIZE + bounce, bytes_to_copy);  // FIXME: bounce + offset correct?
+			} else if (i == (blocks_to_read - 1)) {  // Last data block
+				bytes_to_copy = bytes_left;
+				memcpy(buf + bytes_read, bounce, bytes_to_copy);
+			} else {  // Middle data blocks
+				bytes_to_copy = BLOCK_SIZE;
+				memcpy(buf + bytes_read, bounce, bytes_to_copy);
+			}
+			// Copy appropriate data into buffer
+			// memcpy((buf + bytes_read), ((offset % BLOCK_SIZE) + bounce), bytes_to_copy);
+			// Update variables
+			bytes_read += bytes_to_copy;
+			bytes_left -= bytes_to_copy;
+			bytes_to_copy = 0;
+			// Move the offset after the read
+			fs_lseek(fd, offset + bytes_read);
+			offset = FDT[fd].offset;
+			// Get the index of the next data block to be read
+			idx = get_data_block_idx(fd);
+		}
+	}
+
+	for (int i = 0; bytes_read < count && idx != -1; i += bytes_read) {
+		// bytes_left = count - bytes_read;
+		// Read entire data block at idx into bounce
+		block_read(idx, bounce);
+
+
+		// if ((FDT[fd].offset + bytes_left) % BLOCK_SIZE > 0) {
+		// 	// more block accesses needed
+		// 	// find nearest next block beginning index
+		// 	int next_block = ((FDT[fd].offset + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+		// 	bytes_to_copy = next_block - FDT[fd].offset;
+		// }
+		// Case: offset aligned exactly with the beginning of a block
+		// if (FDT[fd].offset % BLOCK_SIZE == 0) {
+		// 	// Number of bytes left to read is at least BLOCK_SIZE many bytes
+		// 	if (bytes_left / BLOCK_SIZE >= 1) {
+		// 		bytes_to_copy = BLOCK_SIZE;
+		// 	} else {  // Number of bytes left to read is < BLOCK_SIZE
+		// 		bytes_to_copy = bytes_left;
+		// 	}
+		// } else { // Case: offset not aligned with beginning of block
+		// 	// Number of bytes left to read is at least BLOCK_SIZE many bytes
+		// 	if (bytes_left / BLOCK_SIZE >= 1) {
+		// 		bytes_to_copy = BLOCK_SIZE - (FDT[fd].offset % BLOCK_SIZE);
+		// 	} else {  // Number of bytes left to read is < BLOCK_SIZE
+		// 		bytes_to_copy = bytes_left;
+		// 	}
+		// }
+
+		// memcpy((buf + i), bounce, bytes_to_copy);
+		// fs_lseek(fd, FDT[fd].offset + bytes_to_copy);
+		// bytes_read += bytes_to_copy;
+		// bytes_left -= bytes_to_copy;
+		// bytes_to_copy = 0;
+
+		// Case: reading 
+		if (FDT[fd].offset % BLOCK_SIZE > 0) {
+			//Current position of the datablock
+			int cur_position_datablock = 1;
+			for (int i = 1; FDT[fd].offset > (i * BLOCK_SIZE); i++){
+				cur_position_datablock++;
+			}
+			
+			//Checks if there are multiple blocks to read
+			//int	traverse_datablocks = ((FDT[fd].offset - (cur_position_datablock * BLOCK_SIZE)) + count) / (BLOCK_SIZE + 1);
+			
+			//Keep track of the data block idx
+			int data_block_idx = FDT[fd].data_start_idx;
+			int obtained_bytes = 0;
+			//To store the bytes that are acutally read to the buf			
+			char bounce_copy[count];
+			for (int i =0; i < count; i ++){
+
+				//Checks if the offset reachs the end of the datablock
+				if (FDT[fd].offset > (cur_position_datablock * BLOCK_SIZE)){
+					//Check if there is more datablocks in the file
+					//If not then return the read bytes
+					if(FAT[data_block_idx] == FAT_EOC){
+						memcpy(buf, bounce_copy, sizeof(bounce_copy));
+						return i;
+					}
+					else{
+						block_read(get_data_block_idx(fd), bounce);
+						//traverse_datablocks--;
+						cur_position_datablock++;
+						data_block_idx = FAT[data_block_idx];
+					}
+				}
+			bounce_copy[i] = bounce[(FDT[fd].offset)];
+			fs_lseek(fd,(FDT[fd].offset + 1));
+			obtained_bytes++;
+			}
+
+			memcpy(buf, bounce_copy, sizeof(bounce_copy));
+			return obtained_bytes;
+		}
+	}
+
+	//For all cases:
+	//buf needs to be the one to have all the data
+	//FIXME: Updating the offset to the number of byets that were acutally read
+	FDT[fd].offset = FDT[fd].offset + bytes_read;
+
+
+
+
+	//After the function is done reading
+	//Need to set the buffer to the next available data pointer??
 	
-	// Need a bounce buffer for reading and writing
-	char * bounce;
+
 
 // 	 * Attempt to read @count bytes of data from the file referenced by file
 //  * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
@@ -470,3 +604,47 @@ int fs_read(int fd, void *buf, size_t count)
 	/* TODO: Phase 4 */
 }
 
+
+/**
+ * Helper function: Gets the index of the data block corresponding to the file's offset
+ * @fd: File descriptor
+ * 
+ * Return: index of the data block corresponding to the file's offset
+ */
+static int get_data_block_idx(int fd)
+{
+	// File size is 0 - does not occupy any data blocks
+	if (FDT[fd].data_start_idx == FAT_EOC) {
+		return -1;
+	}
+	
+	// Find the size of the file
+	// int size;
+	// for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+	// 	if (!strcmp(FDT[fd].filename, root_dir[i].filename)) {
+	// 		size = root_dir[i].size;
+	// 		break;
+	// 	}
+	// }
+
+	// Find the number of data blocks that the file spans
+	// (size / BLOCK_SIZE): number of fully occupied data blocks
+	// (size % BLOCK_SIZE > 0 ? 1 : 0): if a blocks is partially occupied, add 1 - otherwise add 0
+	// This accounts both cases where the file occupies exactly a multiple of a block (size % BLOCK_SIZE = 0)
+	// and when a file occupies part of a block (size % BLOCK_SIZE > 0)
+	// int num_blocks = (size / BLOCK_SIZE) + (size % BLOCK_SIZE > 0 ? 1 : 0);
+
+	// Start at the first data block index
+	int idx = FDT[fd].data_start_idx;
+	int i = 1;  // block size multiplier
+	// While the offset is larger than some multiple of BLOCK_SIZE, keep going through the FAT
+	// entries to find the index of the next data block
+	// When the offset is <= some multiple of BLOCK_SIZE, then we have found the data block
+	// corresponding to offset
+	while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
+		idx = FAT[idx];
+		i++;
+	}
+
+	return idx;
+}
