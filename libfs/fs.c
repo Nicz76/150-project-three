@@ -66,7 +66,9 @@ int fs_mount(const char *diskname)
 	}
 
 	// Read superblock from virtual disk
-	block_read(0, &sb);  // FIXME: correct usage?
+	if (block_read(0, &sb) == -1) {
+        return -1;
+    }
 
 	// printf("Read superblock\n");
 	// printf("Signature: %lX\n", sb.signature);
@@ -91,19 +93,25 @@ int fs_mount(const char *diskname)
     // Allocate FAT blocks
     // FAT = malloc((int)sb.FAT_blocks * sizeof(struct FAT_block));
 	int entries_per_FAT_block = BLOCK_SIZE / 2;
-	FAT = malloc((int)sb.FAT_blocks * entries_per_FAT_block);
+	// FAT = malloc((int)sb.FAT_blocks * entries_per_FAT_block * sizeof(uint16_t));
+    FAT = calloc((int)sb.FAT_blocks * BLOCK_SIZE, sizeof(uint16_t));
 
 	// printf("Allocated FAT blocks\n");
 
     // Read FAT from virtual disk
 	for (int i = 0; i < (int)sb.FAT_blocks; i++) {
-		block_read(i + 1, &FAT[(i * entries_per_FAT_block)]);
+		if (block_read(i + 1, &FAT[i * entries_per_FAT_block]) == -1) {
+            // Block read failed
+            return -1;
+        }
 	}
 
 	// printf("Read FAT from disk\n");
 
 	// Read root directory from virtual disk
-	block_read(sb.root_dir_idx, &root_dir);
+	if (block_read(sb.root_dir_idx, &root_dir) == -1) {
+        return -1;
+    }
 	
 	// printf("Read root directory from disk\n");
 		
