@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
 {
 	int ret;
 	char *diskname;
-	// int fd;
+	int fd;
 	// char data[26];
 
 	if (argc < 1) {
@@ -28,37 +28,34 @@ int main(int argc, char *argv[])
 	diskname = argv[1];
 	ret = fs_mount(diskname);
 	ASSERT(!ret, "fs_mount");
+	printf("Mounted successfully\n");
 
     /* Print info about disk */
     ret = fs_info();
     ASSERT(!ret, "fs_info");
-    printf("FIXME: reminder - fs_info incomplete\n");
+	printf("Info'd successfully\n");
 
-    /* Create file */
-    ret = fs_create("myfile.txt");
-    ASSERT(!ret, "fs_create");
-    printf("Created myfile.txt\n");
+	/* Open file */
+	fd = fs_open("myfile");
+	ASSERT(fd >= 0 && fd < 32, "fs_open");
 
-    /* Check info after file creation */
-    printf("LS after creating myfile.txt:\n\n");
-    ret = fs_info();
-    ASSERT(!ret, "fs_info");
+    /* Check size of myfile */
+    ret = fs_stat(fd);
+    ASSERT(ret != -1 && ret >= 0, "fs_stat");
 
-    /* List files on disk - should see myfile.txt */
-    ret = fs_ls();
-    ASSERT(!ret, "fs_ls");
+    /* Lseek */
+    ret = fs_lseek(fd, fs_stat(fd));
+    ASSERT(!ret, "fs_lseek");
 
-    /* Delete file */
-    ret = fs_delete("myfile.txt");
-    ASSERT(!ret, "fs_delete");
+	// /* Read some data */
+	// fs_lseek(fd, 12);
+	// ret = fs_read(fd, data, 10);
+	// ASSERT(ret == 10, "fs_read");
+	// ASSERT(!strncmp(data, "mnopqrstuv", 10), "fs_read");
 
-    /* Check info after file deletion */
-    ret = fs_info();
-    ASSERT(!ret, "fs_info");
-
-    /* List files on disk - should see nothing */
-    ret = fs_ls();
-    ASSERT(!ret, "fs_ls");
+	/* Close file */
+	ret = fs_close(fd);
+    ASSERT(!ret, "fs_close");
 
     /* Unmount disk */
 	ret = fs_umount();
