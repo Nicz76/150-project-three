@@ -714,31 +714,49 @@ static int get_data_block_idx(int fd)
 }
 
 //Helper Function for fs_write() to extend file size
-// int extend_file_size(int fd, int bytes_left)
+// int extend_file_size(int fd, int bytes_left, int cur_offset)
 // {
+	int required_datablocks = (((cur_offset % BLOCK_SIZE) + bytes_left) / BLOCK_SIZE);
 	
+	//If there is a need to allocate a new datablock
+	if (requried_datablocks != 0){
 // 	int ptr;
 // 	//get the current EOC
-// 	 ptr = FDT[fd].data_start_idx;
-// 	 while (ptr != FAT_EOC){
-// 		ptr = FAT[ptr];
-// 	 }
+// 	ptr = FDT[fd].data_start_idx;
+//	//Check if the file size is not zero
+//	if (ptr != FAT_EOC){
+// 		while (FAT[ptr] != FAT_EOC){
+// 			ptr = FAT[ptr];
+// 		}
 
 // 	//Travse the FAT array to find space to allocate new blocks of
 // 	//datablocks
-
-// 	int end_of_idx = -1;
+// 	int out_of_datablocks = -1;
+//	int total_datablocks_ = required_datablocks;
 // 	for (int i = 0; i <(sb.FAT_blocks * BLOCK_SIZE / 2); i++){		//Fixme: Need the size of the FAT array
 // 		if (FAT[i] == 0){
+//			//If the file size is zero
+//			if (ptr == FAT_EOC){
+//			FDT[fd].data_start_idx = i;
+//			ptr = i;
+//			//It does run the other code which is unnessary for this case
+//			// but its better to leave it as it is as does this once rather than using
+//			//if or else statements at least a thousand times
+//			}
+//			out_of_datablocks = i;
 // 			FAT[ptr] = i;
 // 			FAT[i] = FAT_EOC;
-// 			end_of_idx = i;
-// 			break;
+// 			ptr = i;
+// 			required_datablocks--;
 // 		}
+//		if (required_datablocks == 0){
+//		break;
+//		}
+//
 // 	}
-// 	//If there are no more available space then return	
-// 	if (end_of_idx == -1){
-// 		return -1;
+//	if (total_datablocks == requried_datablocks && out_of_datablocks == -1)
+//	printf("No free datablocks available");
+//	return -1;
 // 	}
 
 // 	//Find the size of the file
@@ -751,9 +769,12 @@ static int get_data_block_idx(int fd)
 // 			break;
 // 		}
 // 	}
-
+//
+//	//Calculate the amount of bytes acutally allocated to the file size
+//	int bytes_given = bytes_left - (requried_datablocks * BLOCK_SIZE);
+//
 // 	//Increase current file size
-// 	size = size + BLOCK_SIZE;
+// 	size = size + bytes_given;
 // 	root_dir[i].size = size;
 // }
 */
