@@ -53,7 +53,18 @@ int rdir_free_entries;
 int total_file_open;
 struct filedes FDT[FS_OPEN_MAX_COUNT];
 
-/* TODO: Phase 1 */
+/**
+  * Finds the minimum of two integers
+  * @param a: first integer
+  * @param b: second integer
+  * 
+  * Returns: minimum of a and b
+  */
+static int min(int a, int b) 
+{
+    return a < b ? a : b;
+}
+
 
 int fs_mount(const char *diskname)
 {	
@@ -153,12 +164,10 @@ int fs_umount(void)
 		return -1;
 	} 
 
-	// free(FAT);
+    // Write root directory & FAT back to the disk -- TODO Phase 4
+
+	free(FAT);
 	return 0;
-	//Close virtual disk(make sure the virtual disk is up to date)
-	//* Return: -1 if no FS is currently mounted, or if the virtual disk cannot be
- //* closed, or if there are still open file descriptors. 0 otherwise.
-	/* TODO: Phase 1 */
 }
 
 int fs_info(void)
@@ -226,31 +235,19 @@ int fs_create(const char *filename)
 	// }
 	
 	// Add filename entry to root directory
-	memcpy(root_dir[first_avail_idx].filename, filename, strlen(filename) + 1);  
+	memcpy(root_dir[first_avail_idx].filename, filename, FS_FILENAME_LEN);  
 	// root_dir[first_avail_idx].filename=(uint8_t)(filename);
 	root_dir[first_avail_idx].size = 0;
 	root_dir[first_avail_idx].data_start_idx = FAT_EOC;
-	// root_dir[first_avail_idx].data_start_idx = 0; 
 
 	// Decrement number of free entries in root directory
 	rdir_free_entries--;
 
 	return 0;
-	/* TODO: Phase 2*/ 
-
-// 	 * Create a new and empty file named @filename in the root directory of the
-//  * mounted file system. String @filename must be NULL-terminated and its total
-//  * length cannot exceed %FS_FILENAME_LEN characters (including the NULL
-//  * character).
-//  *
-//  * Return: -1 if no FS is currently mounted, or if @filename is invalid, or if a
-//  * file named @filename already exists, or if string @filename is too long, or
-//  * if the root directory already contains %FS_FILE_MAX_COUNT files. 0 otherwise.
  }
 
 int fs_delete(const char *filename)
 {
-	/* TODO: Phase 2 */
 	// Error checking: no FS mounted or @filename is invalid
 	if (block_disk_count() == -1 || filename == NULL) {
 		return -1;
@@ -310,12 +307,6 @@ int fs_ls(void)
 	}
 
 	return 0;
-// 	 * fs_ls - List files on file system
-//  *
-//  * List information about the files located in the root directory.
-//  *
-//  * Return: -1 if no FS is currently mounted. 0 otherwise.
-	/* TODO: Phase 2 */
 }
 
 int fs_open(const char *filename)
@@ -323,6 +314,9 @@ int fs_open(const char *filename)
 	// Error checking: no FS mounted or @filename is invalid 
 	// or there are already %FS_OPEN_MAX_COUNT files currently open
 	if (block_disk_count() == -1 || filename == NULL || total_file_open >= FS_OPEN_MAX_COUNT) {
+        printf("FS open = %d\n", block_disk_count());
+        printf("Filename = %s\n", filename);
+        printf("Total files open = %d\n", total_file_open);
 		return -1;
 	}
 	
@@ -371,19 +365,6 @@ int fs_open(const char *filename)
 	total_file_open++;
 
 	return fd;
-	/* TODO: Phase 3 */
-// 	* Open file named @filename for reading and writing, and return the
-//  * corresponding file descriptor. The file descriptor is a non-negative integer
-//  * that is used subsequently to access the contents of the file. The file offset
-//  * of the file descriptor is set to 0 initially (beginning of the file). If the
-//  * same file is opened multiple files, fs_open() must return distinct file
-//  * descriptors. A maximum of %FS_OPEN_MAX_COUNT files can be open
-//  * simultaneously.
-//  *
-//  * Return: -1 if no FS is currently mounted, or if @filename is invalid, or if
-//  * there is no file named @filename to open, or if there are already
-//  * %FS_OPEN_MAX_COUNT files currently open. Otherwise, return the file
-//  * descriptor.
 }
 
 int fs_close(int fd)
@@ -414,12 +395,7 @@ int fs_close(int fd)
 	FDT[fd].offset = 0;
 
 	total_file_open--;
-	// close(fd);
 	return 0;
-	
-	/* TODO: Phase 3 */
-// 	 * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
-//  * invalid (out of bounds or not currently open). 0 otherwise.
 }
 
 int fs_stat(int fd)
@@ -439,15 +415,6 @@ int fs_stat(int fd)
 	}
 	
 	return file_size;
-	/* TODO: Phase 3 */
-// 	 * fs_stat - Get file status
-//  * @fd: File descriptor
-//  *
-//  * Get the current size of the file pointed by file descriptor @fd.
-//  *
-//  * Return: -1 if no FS is currently mounted, of if file descriptor @fd is
-//  * invalid (out of bounds or not currently open). Otherwise return the current
-//  * size of file.
 }
 
 int fs_lseek(int fd, size_t offset)
@@ -461,95 +428,218 @@ int fs_lseek(int fd, size_t offset)
 	FDT[fd].offset = offset;
 
 	return 0;
-
-	/* TODO: Phase 3 */
-// 	* fs_lseek - Set file offset
-//  * @fd: File descriptor
-//  * @offset: File offset
-//  *
-//  * Set the file offset (used for read and write operations) associated with file
-//  * descriptor @fd to the argument @offset. To append to a file, one can call
-//  * fs_lseek(fd, fs_stat(fd));
-//  *
-//  * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
-//  * invalid (i.e., out of bounds, or not currently open), or if @offset is larger
-//  * than the current file size. 0 otherwise.
 }
-/*
+
+
+// Return: index of the first free entry of the FAT, -1 if no entries available
+int get_free_FAT_idx()
+{
+    for (int i = 0; i < sb.total_data_blks; i++) {
+        if (FAT[i] == 0) {
+            return i;
+        }
+    }
+
+    // No free entries
+    return -1;
+}
+
 int fs_write(int fd, void *buf, size_t count)
 {
-	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open) or @buf is NULL
-	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
+	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open) 
+    // or @buf is NULL
+	if (block_disk_count() == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
 		return -1;
 	}
 
-	 TODO: Phase 4 
-	//Modify and sycyhn data everytime there is
-	//a change in the data blocks
-	*
- * fs_write - Write to a file
- * @fd: File descriptor
- * @buf: Data buffer to write in the file
- * @count: Number of bytes of data to be written
- *
- * Attempt to write @count bytes of data from buffer pointer by @buf into the
- * file referenced by file descriptor @fd. It is assumed that @buf holds at
- * least @count bytes.
- *
- * When the function attempts to write past the end of the file, the file is
- * automatically extended to hold the additional bytes. If the underlying disk
- * runs out of space while performing a write operation, fs_write() should write
- * as many bytes as possible. The number of written bytes can therefore be
- * smaller than @count (it can even be 0 if there is no more space on disk).
- *
- * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
- * invalid (out of bounds or not currently open), or if @buf is NULL. Otherwise
- * return the number of bytes actually written.
+    int offset = FDT[fd].offset;
+
+    
+    // Find index of current data block corresponding to offset
+	int idx = FDT[fd].data_start_idx;
+    int data_idx;
+    // If idx == FAT_EOC, then file size is 0 - does not occupy any data blocks
+	if (idx == FAT_EOC) {
+		idx = get_free_FAT_idx();  // get first free FAT index
+	} else {  // file size > 0 - find idx corresponding to this offset
+        int i = 1;
+        while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
+            idx = FAT[idx];
+            i++;
+        }
+    }
+    // Add #data blocks offset to idx to get data_idx (from superblock & FAT blocks before start of data blocks)
+    data_idx = idx + sb.data_blks_idx;
+
+    char bounce[BLOCK_SIZE];
+    int bytes_left = count;
+    int bytes_written = 0;
+    
+    // Calculate number of blocks needed to write all of buf into disk
+    int blocks_to_write = (offset + count) / BLOCK_SIZE + ((offset + count) % BLOCK_SIZE != 0);
+
+    // Find fd's entry in root_dir to grab its size and index
+    int size = 0;
+    int root_dir_idx = 0;
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+        if (!strcmp((char*)FDT[fd].filename, (char*)root_dir[i].filename)) {
+            size = root_dir[i].size;
+            root_dir_idx = i;
+            break;
+        }
+    }
+
+
+    // Part of one or exactly one data block to write
+    if (blocks_to_write == 1) {
+        // if ()
+        if (block_read(idx, bounce) == -1) {
+            perror("Block read");
+            return -1;
+        }
+    }
+    
+    root_dir_idx += 1;  // FIXME: silence warnings - remove these
+    size += 1;
+    bytes_left += 1;
+
+    
+
  
+
+    return bytes_written;
 }
+
+
+
+
+/**
+ * Helper function: Gets the index of the data block corresponding to the file's offset
+ * @fd: File descriptor
+ * 
+ * Return: index of the data block corresponding to the file's offset
+ */
+// static int get_data_block_idx(int fd)
+// {
+// 	// File size is 0 - does not occupy any data blocks
+// 	if (FDT[fd].data_start_idx == FAT_EOC) {
+// 		return -1;
+// 	}
+	
+// 	// Find the size of the file
+// 	// int size;
+// 	// for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+// 	// 	if (!strcmp(FDT[fd].filename, root_dir[i].filename)) {
+// 	// 		size = root_dir[i].size;
+// 	// 		break;
+// 	// 	}
+// 	// }
+
+// 	// Find the number of data blocks that the file spans
+// 	// (size / BLOCK_SIZE): number of fully occupied data blocks
+// 	// (size % BLOCK_SIZE > 0 ? 1 : 0): if a blocks is partially occupied, add 1 - otherwise add 0
+// 	// This accounts both cases where the file occupies exactly a multiple of a block (size % BLOCK_SIZE = 0)
+// 	// and when a file occupies part of a block (size % BLOCK_SIZE > 0)
+// 	// int num_blocks = (size / BLOCK_SIZE) + (size % BLOCK_SIZE > 0 ? 1 : 0);
+
+// 	// Start at the first data block index
+// 	int idx = FDT[fd].data_start_idx;
+// 	int i = 1;  // block size multiplier
+// 	// While the offset is larger than some multiple of BLOCK_SIZE, keep going through the FAT
+// 	// entries to find the index of the next data block
+// 	// When the offset is <= some multiple of BLOCK_SIZE, then we have found the data block
+// 	// corresponding to offset
+// 	while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
+// 		idx = FAT[idx];
+//         // Reached end of file
+//         if (idx == FAT_EOC) {
+//             return -1;
+//         }
+// 		i++;
+// 	}
+
+// 	return idx + sb.data_blks_idx;
+// }
+
+
+
 
 int fs_read(int fd, void *buf, size_t count)
 {
 	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open) or @buf is NULL
-	if (block_disk_count == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
+	if (block_disk_count() == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
 		return -1;
 	}
 
+    // Find index of current data block corresponding to offset
+	int idx = FDT[fd].data_start_idx;
+	if (idx == FAT_EOC) {
+        // File size is 0 - does not occupy any data blocks
+		return 0;
+	}
+    int i = 1;
+    while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
+        idx = FAT[idx];
+        i++;
+    }
+    // Add offset to idx (from superblock & FAT blocks before start of data blocks)
+    idx += sb.data_blks_idx;
 
+    
+	char bounce[BLOCK_SIZE];  // Bounce buffer to read entire blocks
+	int bytes_left = count;  // Numbr of bytes remaining to be read
+	int bytes_to_copy = 0;  // Number of bytes to copy from bounce into buf
+	int bytes_read = 0;    // Number of bytes read already
+	int offset = FDT[fd].offset;  // Current offset for the fd (grabbing into another variable for more readability)
 
-
-	// Need a bounce buffer for reading and writing for partial read or write
-	int idx = get_data_block_idx(fd);
-	char bounce[BLOCK_SIZE];
-	int bytes_left = count;
-	int bytes_to_copy = 0;  // number of bytes to copy from bounce into buf
-	int bytes_read = 0;
-	int offset = FDT[fd].offset;
 	// Calculate number of blocks to read (ceiling division)
 	int blocks_to_read = (offset + count) / BLOCK_SIZE + ((offset + count) % BLOCK_SIZE != 0);
+    
+    // Find fd's entry in root_dir to grab its size
+    int size = 0;
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+        if (!strcmp((char*)FDT[fd].filename, (char*)root_dir[i].filename)) {
+            size = root_dir[i].size;
+            break;
+        }
+    }
 
 	// Part of one or exactly one data block to be read
 	if (blocks_to_read == 1) {
-		block_read(idx, bounce);
-		memcpy(buf, bounce + offset, count);
-		fs_lseek(fd, offset + count);
+        // printf("idx = %d\n", idx);
+		if (block_read(idx, bounce) == -1) {
+            perror("Block read");
+            return -1;
+        }
+        bytes_to_copy = min(count, size);
+        // printf("Bounce: %s\n", (char*)bounce);
+        // printf("Offset = %d\n", offset);
+		memcpy(buf, bounce + offset, bytes_to_copy);
+        // printf("Buf: %s\n", (char*)buf);
+        bytes_read = bytes_to_copy;
+        fs_lseek(fd, offset + bytes_to_copy);
 	} else { // More than one data block to be read
-		for (int i = 0; i < blocks_to_read && idx != -1; i++) {
-			block_read(idx, bounce);
+		for (int i = 0; i < blocks_to_read; i++) {
+			if (block_read(idx, bounce) == -1) {
+                perror("Block read");
+                return -1;
+            }
 			// First data block: offset possibly not aligned with beginning of block
 			if (i == 0) {
-				bytes_to_copy = offset % BLOCK_SIZE;
-				memcpy(buf, offset % BLOCK_SIZE + bounce, bytes_to_copy);  // FIXME: bounce + offset correct?
+				bytes_to_copy = min(BLOCK_SIZE - offset % BLOCK_SIZE, size - bytes_read);
+                // printf("Offset = %d\n", offset);
+                // printf("bytes_to_copy = %d\n", bytes_to_copy);
+				memcpy(buf, bounce + offset % BLOCK_SIZE, bytes_to_copy);
 			} else if (i == (blocks_to_read - 1)) {  // Last data block
-				bytes_to_copy = bytes_left;
+				bytes_to_copy = min(bytes_left, size - bytes_read);
 				memcpy(buf + bytes_read, bounce, bytes_to_copy);
 			} else {  // Middle data blocks
-				bytes_to_copy = BLOCK_SIZE;
+				bytes_to_copy = min(BLOCK_SIZE, size - bytes_read);
 				memcpy(buf + bytes_read, bounce, bytes_to_copy);
 			}
 			// Copy appropriate data into buffer
 			// memcpy((buf + bytes_read), ((offset % BLOCK_SIZE) + bounce), bytes_to_copy);
-			// Update variables
+			// Update bytes_read and bytes_left and reset bytes_to_copy
 			bytes_read += bytes_to_copy;
 			bytes_left -= bytes_to_copy;
 			bytes_to_copy = 0;
@@ -557,14 +647,18 @@ int fs_read(int fd, void *buf, size_t count)
 			fs_lseek(fd, offset + bytes_read);
 			offset = FDT[fd].offset;
 			// Get the index of the next data block to be read
-			idx = get_data_block_idx(fd);
+			idx = FAT[idx - sb.total_data_blks];  
+            if (idx == FAT_EOC) {
+                break;
+            }
+            idx += sb.total_data_blks;
 		}
 	}
 
-	for (int i = 0; bytes_read < count && idx != -1; i += bytes_read) {
+	// for (int i = 0; bytes_read < count && idx != -1; i += bytes_read) {
 		// bytes_left = count - bytes_read;
 		// Read entire data block at idx into bounce
-		block_read(idx, bounce);
+		// block_read(idx, bounce);
 
 
 		// if ((FDT[fd].offset + bytes_left) % BLOCK_SIZE > 0) {
@@ -597,129 +691,70 @@ int fs_read(int fd, void *buf, size_t count)
 		// bytes_to_copy = 0;
 
 		// Case: reading 
-		if (FDT[fd].offset % BLOCK_SIZE > 0) {
-			//Current position of the datablock
-			int cur_position_datablock = 1;
-			for (int i = 1; FDT[fd].offset > (i * BLOCK_SIZE); i++){
-				cur_position_datablock++;
-			}
+	// 	if (FDT[fd].offset % BLOCK_SIZE > 0) {
+	// 		//Current position of the datablock
+	// 		int cur_position_datablock = 1;
+	// 		for (int i = 1; FDT[fd].offset > (i * BLOCK_SIZE); i++){
+	// 			cur_position_datablock++;
+	// 		}
 			
-			//Checks if there are multiple blocks to read
-			//int	traverse_datablocks = ((FDT[fd].offset - (cur_position_datablock * BLOCK_SIZE)) + count) / (BLOCK_SIZE + 1);
+	// 		//Checks if there are multiple blocks to read
+	// 		//int	traverse_datablocks = ((FDT[fd].offset - (cur_position_datablock * BLOCK_SIZE)) + count) / (BLOCK_SIZE + 1);
 			
-			//Keep track of the data block idx
-			int data_block_idx = FDT[fd].data_start_idx;
-			int obtained_bytes = 0;
-			//To store the bytes that are acutally read to the buf			
-			char bounce_copy[count];
-			for (int i =0; i < count; i ++){
+	// 		//Keep track of the data block idx
+	// 		int data_block_idx = FDT[fd].data_start_idx;
+	// 		int obtained_bytes = 0;
+	// 		//To store the bytes that are acutally read to the buf			
+	// 		char bounce_copy[count];
+	// 		for (int i =0; i < count; i ++){
 
-				//Checks if the offset reachs the end of the datablock
-				if (FDT[fd].offset > (cur_position_datablock * BLOCK_SIZE)){
-					//Check if there is more datablocks in the file
-					//If not then return the read bytes
-					if(FAT[data_block_idx] == FAT_EOC){
-						memcpy(buf, bounce_copy, sizeof(bounce_copy));
-						return i;
-					}
-					else{
-						block_read(get_data_block_idx(fd), bounce);
-						//traverse_datablocks--;
-						cur_position_datablock++;
-						data_block_idx = FAT[data_block_idx];
-					}
-				}
-			bounce_copy[i] = bounce[(FDT[fd].offset)];
-			fs_lseek(fd,(FDT[fd].offset + 1));
-			obtained_bytes++;
-			}
+	// 			//Checks if the offset reachs the end of the datablock
+	// 			if (FDT[fd].offset > (cur_position_datablock * BLOCK_SIZE)){
+	// 				//Check if there is more datablocks in the file
+	// 				//If not then return the read bytes
+	// 				if(FAT[data_block_idx] == FAT_EOC){
+	// 					memcpy(buf, bounce_copy, sizeof(bounce_copy));
+	// 					return i;
+	// 				}
+	// 				else{
+	// 					block_read(get_data_block_idx(fd), bounce);
+	// 					//traverse_datablocks--;
+	// 					cur_position_datablock++;
+	// 					data_block_idx = FAT[data_block_idx];
+	// 				}
+	// 			}
+	// 		bounce_copy[i] = bounce[(FDT[fd].offset)];
+	// 		fs_lseek(fd,(FDT[fd].offset + 1));
+	// 		obtained_bytes++;
+	// 		}
 
-			memcpy(buf, bounce_copy, sizeof(bounce_copy));
-			return obtained_bytes;
-		}
-	}
+	// 		memcpy(buf, bounce_copy, sizeof(bounce_copy));
+	// 		return obtained_bytes;
+	// 	}
+	// }
 
 	//For all cases:
 	//buf needs to be the one to have all the data
 	//FIXME: Updating the offset to the number of byets that were acutally read
-	FDT[fd].offset = FDT[fd].offset + bytes_read;
+	// FDT[fd].offset = FDT[fd].offset + bytes_read;
 
 
 
-
+    return bytes_read;
 	//After the function is done reading
 	//Need to set the buffer to the next available data pointer??
-	
-
-
-// 	 * Attempt to read @count bytes of data from the file referenced by file
-//  * descriptor @fd into buffer pointer by @buf. It is assumed that @buf is large
-//  * enough to hold at least @count bytes.
-//  *
-//  * The number of bytes read can be smaller than @count if there are less than
-//  * @count bytes until the end of the file (it can even be 0 if the file offset
-//  * is at the end of the file). The file offset of the file descriptor is
-//  * implicitly incremented by the number of bytes that were actually read.
-//  *
-//  * Return: -1 if no FS is currently mounted, or if file descriptor @fd is
-//  * invalid (out of bounds or not currently open), or if @buf is NULL. Otherwise
-//  * return the number of bytes actually read.
-//  */
-	/* TODO: Phase 4 */
-//}
-
-
-/**
- * Helper function: Gets the index of the data block corresponding to the file's offset
- * @fd: File descriptor
- * 
- * Return: index of the data block corresponding to the file's offset
- *
-static int get_data_block_idx(int fd)
-{
-	// File size is 0 - does not occupy any data blocks
-	if (FDT[fd].data_start_idx == FAT_EOC) {
-		return -1;
-	}
-	
-	// Find the size of the file
-	// int size;
-	// for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
-	// 	if (!strcmp(FDT[fd].filename, root_dir[i].filename)) {
-	// 		size = root_dir[i].size;
-	// 		break;
-	// 	}
-	// }
-
-	// Find the number of data blocks that the file spans
-	// (size / BLOCK_SIZE): number of fully occupied data blocks
-	// (size % BLOCK_SIZE > 0 ? 1 : 0): if a blocks is partially occupied, add 1 - otherwise add 0
-	// This accounts both cases where the file occupies exactly a multiple of a block (size % BLOCK_SIZE = 0)
-	// and when a file occupies part of a block (size % BLOCK_SIZE > 0)
-	// int num_blocks = (size / BLOCK_SIZE) + (size % BLOCK_SIZE > 0 ? 1 : 0);
-
-	// Start at the first data block index
-	int idx = FDT[fd].data_start_idx;
-	int i = 1;  // block size multiplier
-	// While the offset is larger than some multiple of BLOCK_SIZE, keep going through the FAT
-	// entries to find the index of the next data block
-	// When the offset is <= some multiple of BLOCK_SIZE, then we have found the data block
-	// corresponding to offset
-	while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
-		idx = FAT[idx];
-		i++;
-	}
-
-	return idx;
 }
+
+
+
 
 //Helper Function for fs_write() to extend file size
 // int extend_file_size(int fd, int bytes_left, int cur_offset)
 // {
-	int required_datablocks = (((cur_offset % BLOCK_SIZE) + bytes_left) / BLOCK_SIZE);
+	// int required_datablocks = (((cur_offset % BLOCK_SIZE) + bytes_left) / BLOCK_SIZE);
 	
 	//If there is a need to allocate a new datablock
-	if (requried_datablocks != 0){
+	// if (requried_datablocks != 0){
 // 	int ptr;
 // 	//get the current EOC
 // 	ptr = FDT[fd].data_start_idx;
@@ -777,4 +812,3 @@ static int get_data_block_idx(int fd)
 // 	size = size + bytes_given;
 // 	root_dir[i].size = size;
 // }
-*/

@@ -2,7 +2,10 @@
 programs := \
 			test_phase1.x \
 			test_phase2.x \
-			test_phase3.x
+			test_phase3.x \
+			simple_reader.x \
+			test_read.x \
+			test_fs.x
 
 # File-system library
 FSLIB := libfs
