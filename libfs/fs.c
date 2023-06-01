@@ -211,8 +211,9 @@ int fs_info(void)
 			fat_free++;
 		}
 	}
+    
 	//Show info about volume
-	/* TODO: Phase 1 */
+
 	printf("FS Info:\n");
 	printf("total_blk_count=%d\n", block_disk_count());
 	printf("fat_blk_count=%d\n", sb.FAT_blocks);
@@ -395,27 +396,14 @@ int fs_close(int fd)
 		return -1;
 	}
 
-
-	// int fd_file_idx = -1;
-	// for (int i = 0; i < FS_OPEN_MAX_COUNT; i++){
-	// 	if (FDT[i] == fd) {
-	// 		fd_file_idx = i;
-	// 		break;
-	// 	}
-	// }
-	
-	// //Error Checking : invalid fd
-	// if (fd_file_idx == -1){
-	// 	return -1;
-	// }
-
-
-
+    // Reset entries for FDT
 	FDT[fd].filename[0] = '\0';
 	FDT[fd].data_start_idx = 0;
 	FDT[fd].offset = 0;
 
+    // Closed the fd
 	total_file_open--;
+
 	return 0;
 }
 
@@ -579,8 +567,6 @@ int fs_write(int fd, void *buf, size_t count)
 
     return bytes_written;
 }
-
-
 
 
 /**
