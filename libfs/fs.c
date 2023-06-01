@@ -65,6 +65,18 @@ static int min(int a, int b)
     return a < b ? a : b;
 }
 
+/**
+  * Finds the maximum of two integers
+  * @param a: first integer
+  * @param b: second integer
+  * 
+  * Returns: maximum of a and b
+  */
+static int max(int a, int b)
+{
+    return a > b ? a : b;
+}
+
 
 int fs_mount(const char *diskname)
 {	
@@ -153,34 +165,44 @@ int fs_mount(const char *diskname)
 }
 
 int fs_umount(void)
-{	//Check if there are open file descriptors
- 	if (total_file_open != 0){
-		printf("There are still open file descriptors\n");
+{	// Error checking: no FS mounted or still have open file descriptors
+ 	if (block_disk_count() == -1 || total_file_open != 0){
+		// printf("There are still open file descriptors\n");
 		return -1;
 	}
 
-	//Checks if the virtual disk file is open
+    // Write root directory & FAT back to the disk -- TODO Phase 4
+    if (block_write(sb.root_dir_idx, root_dir) == -1) {
+        perror("Block write");
+        printf("Error when writing to root dir at unmount\n");
+        return -1;
+    }
+
+    for (int i = 0; i < sb.FAT_blocks; i++) {
+        if (block_write(i + 1, FAT + (BLOCK_SIZE / 2) * i) == -1) {
+            perror("Block write");
+            return -1;
+        }
+    }
+
+    // Close disk
 	if (block_disk_close() == -1){		
 		return -1;
 	} 
 
-    // Write root directory & FAT back to the disk -- TODO Phase 4
-
-	free(FAT);
+	// free(FAT);
 	return 0;
 }
 
 int fs_info(void)
 {
-	// FIXME: need to handle no diskname ("Usage: __") and nonexistant diskname outputs?
-
 	// Error checking: no underlying virtual disk was opened
 	if (block_disk_count() == -1) {
 		return -1;
 	}
 
-//For FAT ratio by Professor
-//for loop to loop all the entries of the FAT table
+    //For FAT ratio by Professor
+    //for loop to loop all the entries of the FAT table
 	int fat_free = 0;
 	int total_fat_entries = sb.total_data_blks;
 
@@ -197,7 +219,6 @@ int fs_info(void)
 	printf("rdir_blk=%d\n", sb.root_dir_idx);
 	printf("data_blk=%d\n", sb.data_blks_idx);
 	printf("data_blk_count=%d\n", sb.total_data_blks);
-	// FIXME:
 	printf("fat_free_ratio=%d/%d\n", fat_free, total_fat_entries);
 	printf("rdir_free_ratio=%d/%d\n", rdir_free_entries, FS_FILE_MAX_COUNT);
 	
@@ -452,28 +473,32 @@ int fs_write(int fd, void *buf, size_t count)
 		return -1;
 	}
 
+    // Grab offset into local var - for readability
     int offset = FDT[fd].offset;
 
-    
     // Find index of current data block corresponding to offset
-	int idx = FDT[fd].data_start_idx;
-    int data_idx;
+	int idx = FDT[fd].data_start_idx;  // Index of FAT entry corresponding to offset
+    int data_idx;  // Index of data block corresponding to offset
+    int prev_idx = FAT_EOC;  // One FAT idx "back" from offset idx (corresponding to fd) - used for updating FAT
+
     // If idx == FAT_EOC, then file size is 0 - does not occupy any data blocks
 	if (idx == FAT_EOC) {
 		idx = get_free_FAT_idx();  // get first free FAT index
 	} else {  // file size > 0 - find idx corresponding to this offset
         int i = 1;
         while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
+            prev_idx = idx;
             idx = FAT[idx];
             i++;
         }
     }
-    // Add #data blocks offset to idx to get data_idx (from superblock & FAT blocks before start of data blocks)
+    // Add number of data blocks (data blocks offset) to idx to get data_idx (from superblock & FAT blocks before start of data blocks)
     data_idx = idx + sb.data_blks_idx;
 
     char bounce[BLOCK_SIZE];
-    int bytes_left = count;
-    int bytes_written = 0;
+    int bytes_left = count;  // Number of remaining bytes to be written
+    int bytes_to_copy = 0;  // Number of bytes to copy from buf into bounce
+    int bytes_written = 0;  // Number of bytes written already
     
     // Calculate number of blocks needed to write all of buf into disk
     int blocks_to_write = (offset + count) / BLOCK_SIZE + ((offset + count) % BLOCK_SIZE != 0);
@@ -490,22 +515,67 @@ int fs_write(int fd, void *buf, size_t count)
     }
 
 
-    // Part of one or exactly one data block to write
-    if (blocks_to_write == 1) {
-        // if ()
-        if (block_read(idx, bounce) == -1) {
-            perror("Block read");
-            return -1;
+    // Write buf into disk
+    for (int i = 0; i < blocks_to_write && (size_t) bytes_written < count; i++) {
+        // Offset is at end of current file and needs another block allocated
+        if (offset == size && offset % BLOCK_SIZE == 0) {
+            // Find next available FAT index (if not already found - i.e. first loop)
+            if (idx == FAT_EOC) {
+                idx = get_free_FAT_idx();  // get first free FAT index
+                data_idx = idx + sb.data_blks_idx;
+            }
+
+            // Copy the next block (or remaining bytes to be written) of buf into bounce for writing into disk
+            bytes_to_copy = min(BLOCK_SIZE, bytes_left);
+            memcpy(bounce, buf + bytes_written, bytes_to_copy);
+
+            // Write to disk
+            block_write(data_idx, bounce);
+
+            // Update FAT
+            if (prev_idx != FAT_EOC) {
+                FAT[prev_idx] = idx;
+            }
+            FAT[idx] = FAT_EOC;
+
+            // File originally had no data - set its starting data block index
+            if (size == 0) {
+                root_dir[root_dir_idx].data_start_idx = idx;
+                FDT[fd].data_start_idx = idx;
+            }
+
+            // Calculate new size
+            size += bytes_to_copy;
+        } else {  // Offset is somewhere in the middle of a block
+            // Read block (including existing data) into bounce
+            block_read(data_idx, bounce);
+
+            // Copy from buf into bounce
+            bytes_to_copy = min(BLOCK_SIZE - offset % BLOCK_SIZE, bytes_left);  // min of remaining space in block and the remaining bytes to be written
+            memcpy(bounce + offset, buf + bytes_written, bytes_to_copy);
+
+            // Write to disk
+            block_write(data_idx, bounce);
+
+            // Calculate new size - we may have written over data but did not increase the size, or increased the size (whether data was written over or not)
+            size = max(offset + bytes_to_copy, size);
         }
+        
+        // Update size and offset
+        fs_lseek(fd, offset + bytes_to_copy);
+        offset = FDT[fd].offset;
+        root_dir[root_dir_idx].size = size;
+
+        // Update bytes_left and bytes_written and reset bytes_to_copy
+        bytes_left -= bytes_to_copy;
+        bytes_written += bytes_to_copy;
+        bytes_to_copy = 0;
+
+        // Get next FAT and data block indices
+        prev_idx = idx;
+        idx = FAT[idx];
+        data_idx = idx + sb.data_blks_idx;
     }
-    
-    root_dir_idx += 1;  // FIXME: silence warnings - remove these
-    size += 1;
-    bytes_left += 1;
-
-    
-
- 
 
     return bytes_written;
 }
@@ -619,7 +689,7 @@ int fs_read(int fd, void *buf, size_t count)
         bytes_read = bytes_to_copy;
         fs_lseek(fd, offset + bytes_to_copy);
 	} else { // More than one data block to be read
-		for (int i = 0; i < blocks_to_read; i++) {
+		for (int i = 0; i < blocks_to_read && (size_t)bytes_read < count; i++) {
 			if (block_read(idx, bounce) == -1) {
                 perror("Block read");
                 return -1;

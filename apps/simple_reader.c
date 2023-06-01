@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
 	ret = fs_read(fd, data, 10);
 	ASSERT(ret == 10, "fs_read");
 	ASSERT(!strncmp(data, "mnopqrstuv", 10), "fs_read");
+    // printf("%s\n", data);
 
 	/* Close file and unmount */
 	fs_close(fd);

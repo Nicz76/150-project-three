@@ -18,6 +18,7 @@ int main(int argc, char *argv[])
 	char *diskname;
 	int fd;
 	char data[26] = "abcdefghijklmnopqrstuvwxyz";
+    char output[26];
 
 	if (argc < 1) {
 		printf("Usage: %s <diskimage>\n", argv[0]);
@@ -39,6 +40,14 @@ int main(int argc, char *argv[])
 	/* Write some data */
 	ret = fs_write(fd, data, sizeof(data));
 	ASSERT(ret == sizeof(data), "fs_write");
+
+
+    /* Read the data to check it was written properly */
+    fs_lseek(fd, 0);
+    ret = fs_read(fd, output, sizeof(data));
+    ASSERT(ret == sizeof(data), "fs_read");
+    // ASSERT(!ret, "fs_read");  // Should read nothing since offset at end - without lseek
+    printf("%s\n", (char*)output);
 
 	/* Close file and unmount */
 	fs_close(fd);

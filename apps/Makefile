@@ -5,7 +5,8 @@ programs := \
 			test_phase3.x \
 			simple_reader.x \
 			test_read.x \
-			test_fs.x
+			test_fs.x \
+			simple_writer.x
 
 # File-system library
 FSLIB := libfs
