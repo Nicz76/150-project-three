@@ -53,12 +53,15 @@ int rdir_free_entries;
 int total_file_open;
 struct filedes FDT[FS_OPEN_MAX_COUNT];
 
+
+/** Helper functions **/
+
 /**
   * Finds the minimum of two integers
   * @param a: first integer
   * @param b: second integer
   * 
-  * Returns: minimum of a and b
+  * Return: minimum of a and b
   */
 static int min(int a, int b) 
 {
@@ -70,11 +73,30 @@ static int min(int a, int b)
   * @param a: first integer
   * @param b: second integer
   * 
-  * Returns: maximum of a and b
+  * Return: maximum of a and b
   */
 static int max(int a, int b)
 {
     return a > b ? a : b;
+}
+
+/**
+  * Finds the index of the first free entry in the FAT
+  *
+  * Return: -1 if no entries available, otherwise returns the index of the first free entry of the FAT
+  */
+// Return: 
+int get_free_FAT_idx()
+{
+	// Loop through FAT to find the first entry that is == 0
+    for (int i = 0; i < sb.total_data_blks; i++) {
+        if (FAT[i] == 0) {
+            return i;
+        }
+    }
+
+    // No free entries
+    return -1;
 }
 
 
@@ -171,10 +193,10 @@ int fs_umount(void)
 		return -1;
 	}
 
-    // Write root directory & FAT back to the disk -- TODO Phase 4
+    // Write root directory & FAT back to the disk
     if (block_write(sb.root_dir_idx, root_dir) == -1) {
         perror("Block write");
-        printf("Error when writing to root dir at unmount\n");
+        // printf("Error when writing to root dir at unmount\n");
         return -1;
     }
 
@@ -201,8 +223,8 @@ int fs_info(void)
 		return -1;
 	}
 
-    //For FAT ratio by Professor
-    //for loop to loop all the entries of the FAT table
+    // For FAT ratio by Professor
+    // for loop to loop all the entries of the FAT table
 	int fat_free = 0;
 	int total_fat_entries = sb.total_data_blks;
 
@@ -229,15 +251,14 @@ int fs_info(void)
 int fs_create(const char *filename)
 {
 	// Error checking: no FS mounted or @filename is invalid or string @filename is too long
-	// or root directory already contains %FS_FILE_MAX_COUNT files (i.e. no free entries)
+	//                 or root directory already contains %FS_FILE_MAX_COUNT files (i.e. no free entries)
 	if (block_disk_count() == -1 || filename == NULL || (strlen(filename) + 1) > FS_FILENAME_LEN || rdir_free_entries == 0) {
 		return -1;
 	}
 
 	// Error checking: filename already exists in root directory
 	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		//FIXME: Need to make sure they compare the names rather than address?
-		if ((const char*)(root_dir[i].filename) == filename){
+		if (!strcmp((char*)root_dir[i].filename, filename)) {
 			return -1;
 		}
 	}
@@ -289,7 +310,13 @@ int fs_delete(const char *filename)
 		return -1;
 	}
 	
-	// Error checking: @filename is currently open - FIXME: after Phase 3
+	// Error checking: @filename is currently open
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+		if (!strcmp((char*)FDT[i].filename, filename)) {
+			// @filename exists in FDT as an open file
+			return -1;
+		}
+	}
 	
 
 	// Remove file's contents from FAT 
@@ -396,7 +423,7 @@ int fs_close(int fd)
 		return -1;
 	}
 
-    // Reset entries for FDT
+    // Reset fields for the fd entry in FDT
 	FDT[fd].filename[0] = '\0';
 	FDT[fd].data_start_idx = 0;
 	FDT[fd].offset = 0;
@@ -440,23 +467,10 @@ int fs_lseek(int fd, size_t offset)
 }
 
 
-// Return: index of the first free entry of the FAT, -1 if no entries available
-int get_free_FAT_idx()
-{
-    for (int i = 0; i < sb.total_data_blks; i++) {
-        if (FAT[i] == 0) {
-            return i;
-        }
-    }
-
-    // No free entries
-    return -1;
-}
-
 int fs_write(int fd, void *buf, size_t count)
 {
 	// Error checking: no FS mounted or @fd is invalid (out of bounds or not currently open) 
-    // or @buf is NULL
+    //                 or @buf is NULL
 	if (block_disk_count() == -1 || fd < 0 || fd >= FS_OPEN_MAX_COUNT || FDT[fd].filename[0] == '\0' || buf == NULL) {
 		return -1;
 	}
@@ -472,6 +486,10 @@ int fs_write(int fd, void *buf, size_t count)
     // If idx == FAT_EOC, then file size is 0 - does not occupy any data blocks
 	if (idx == FAT_EOC) {
 		idx = get_free_FAT_idx();  // get first free FAT index
+		if (idx == -1) {
+			// File size is 0 and there is no space left in the FAT - no bytes can be written
+			return 0;
+		}
 	} else {  // file size > 0 - find idx corresponding to this offset
         int i = 1;
         while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
@@ -483,7 +501,7 @@ int fs_write(int fd, void *buf, size_t count)
     // Add number of data blocks (data blocks offset) to idx to get data_idx (from superblock & FAT blocks before start of data blocks)
     data_idx = idx + sb.data_blks_idx;
 
-    char bounce[BLOCK_SIZE];
+    char bounce[BLOCK_SIZE];  // Bounce buffer to read from/write to disk
     int bytes_left = count;  // Number of remaining bytes to be written
     int bytes_to_copy = 0;  // Number of bytes to copy from buf into bounce
     int bytes_written = 0;  // Number of bytes written already
@@ -535,8 +553,13 @@ int fs_write(int fd, void *buf, size_t count)
             // Calculate new size
             size += bytes_to_copy;
         } else {  // Offset is somewhere in the middle of a block
+			// printf("Reading from middle of a block. FAT idx = %d, data block idx = %d\n", idx, data_idx);
             // Read block (including existing data) into bounce
             block_read(data_idx, bounce);
+
+			// printf("Bounce looks like: %s\n", (char*)bounce);
+			// printf("File size: %d\n", fs_stat(fd));
+			// printf("offset = %d\n", offset);
 
             // Copy from buf into bounce
             bytes_to_copy = min(BLOCK_SIZE - offset % BLOCK_SIZE, bytes_left);  // min of remaining space in block and the remaining bytes to be written
@@ -630,9 +653,10 @@ int fs_read(int fd, void *buf, size_t count)
     // Find index of current data block corresponding to offset
 	int idx = FDT[fd].data_start_idx;
 	if (idx == FAT_EOC) {
-        // File size is 0 - does not occupy any data blocks
+        // File size is 0 - does not occupy any data blocks, nothing to read
 		return 0;
 	}
+	// Otherwise, find the index in FAT corresponding to offset
     int i = 1;
     while (FDT[fd].offset / (BLOCK_SIZE * i) > 0) {
         idx = FAT[idx];
@@ -642,7 +666,7 @@ int fs_read(int fd, void *buf, size_t count)
     idx += sb.data_blks_idx;
 
     
-	char bounce[BLOCK_SIZE];  // Bounce buffer to read entire blocks
+	char bounce[BLOCK_SIZE];  // Bounce buffer to read entire blocks from disk
 	int bytes_left = count;  // Numbr of bytes remaining to be read
 	int bytes_to_copy = 0;  // Number of bytes to copy from bounce into buf
 	int bytes_read = 0;    // Number of bytes read already
@@ -841,6 +865,8 @@ int fs_read(int fd, void *buf, size_t count)
 // 			required_datablocks--;
 // 		}
 //		if (required_datablocks == 0){
+//		
+//
 //		break;
 //		}
 //

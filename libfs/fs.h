@@ -131,7 +131,7 @@ int fs_stat(int fd);
 /**
  * fs_lseek - Set file offset
  * @fd: File descriptor
- * @offset: File offset
+ * @offset: Fixle offset
  *
  * Set the file offset (used for read and write operations) associated with file
  * descriptor @fd to the argument @offset. To append to a file, one can call
