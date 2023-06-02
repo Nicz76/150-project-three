@@ -84,7 +84,7 @@ int fs_mount(const char *diskname)
 	
 	// Error checking: Virtual file disk @diskname cannot be opened
 	if (block_disk_open(diskname) == -1) {
-		perror("Block disk open");
+		// perror("Block disk open");
 		return -1;
 	}
 
@@ -98,7 +98,7 @@ int fs_mount(const char *diskname)
 
 	// Error checking: file system has expected format
 	if (memcmp(sb.signature, "ECS150FS", 8)) {
-		perror("Wrong signature");
+		// perror("Wrong signature");
 		return -1;
 	}
 
@@ -107,7 +107,7 @@ int fs_mount(const char *diskname)
     // Error checking: total number of blocks is same as block_disk_count() of total
 	int total_number_of_block = 1 + (int)(sb.FAT_blocks)+ 1 + (int)(sb.total_data_blks);
 	if (total_number_of_block != block_disk_count()) {
-		perror("Number of blocks do not match\n");
+		// // perror("Number of blocks do not match\n");
 		return -1;
 	}
 
@@ -173,14 +173,14 @@ int fs_umount(void)
 
     // Write root directory & FAT back to the disk -- TODO Phase 4
     if (block_write(sb.root_dir_idx, root_dir) == -1) {
-        perror("Block write");
-        printf("Error when writing to root dir at unmount\n");
+        // perror("Block write");
+        // printf("Error when writing to root dir at unmount\n");
         return -1;
     }
 
     for (int i = 0; i < sb.FAT_blocks; i++) {
         if (block_write(i + 1, FAT + (BLOCK_SIZE / 2) * i) == -1) {
-            perror("Block write");
+            // perror("Block write");
             return -1;
         }
     }
@@ -336,9 +336,9 @@ int fs_open(const char *filename)
 	// Error checking: no FS mounted or @filename is invalid 
 	// or there are already %FS_OPEN_MAX_COUNT files currently open
 	if (block_disk_count() == -1 || filename == NULL || total_file_open >= FS_OPEN_MAX_COUNT) {
-        printf("FS open = %d\n", block_disk_count());
-        printf("Filename = %s\n", filename);
-        printf("Total files open = %d\n", total_file_open);
+        // printf("FS open = %d\n", block_disk_count());
+        // printf("Filename = %s\n", filename);
+        // printf("Total files open = %d\n", total_file_open);
 		return -1;
 	}
 	
@@ -483,6 +483,8 @@ int fs_write(int fd, void *buf, size_t count)
     // Add number of data blocks (data blocks offset) to idx to get data_idx (from superblock & FAT blocks before start of data blocks)
     data_idx = idx + sb.data_blks_idx;
 
+    // printf("Before loop: idx = %d, data_idx = %d\n", idx, data_idx);
+
     char bounce[BLOCK_SIZE];
     int bytes_left = count;  // Number of remaining bytes to be written
     int bytes_to_copy = 0;  // Number of bytes to copy from buf into bounce
@@ -507,6 +509,7 @@ int fs_write(int fd, void *buf, size_t count)
     for (int i = 0; i < blocks_to_write && (size_t) bytes_written < count; i++) {
         // Offset is at end of current file and needs another block allocated
         if (offset == size && offset % BLOCK_SIZE == 0) {
+            // printf("Loop i = %d, offset = %d\n", i, offset);
             // Find next available FAT index (if not already found - i.e. first loop)
             if (idx == FAT_EOC) {
                 idx = get_free_FAT_idx();  // get first free FAT index
@@ -535,6 +538,7 @@ int fs_write(int fd, void *buf, size_t count)
             // Calculate new size
             size += bytes_to_copy;
         } else {  // Offset is somewhere in the middle of a block
+            // printf("Loop i = %d, idx = %d, data_idx = %d\n", i, idx, data_idx);
             // Read block (including existing data) into bounce
             block_read(data_idx, bounce);
 
@@ -547,12 +551,16 @@ int fs_write(int fd, void *buf, size_t count)
 
             // Calculate new size - we may have written over data but did not increase the size, or increased the size (whether data was written over or not)
             size = max(offset + bytes_to_copy, size);
+            // printf("new size = %d\n", size);
         }
         
         // Update size and offset
-        fs_lseek(fd, offset + bytes_to_copy);
-        offset = FDT[fd].offset;
+        // fs_lseek(fd, offset + bytes_to_copy);
+        offset += bytes_to_copy;
+        FDT[fd].offset = offset;
         root_dir[root_dir_idx].size = size;
+
+        // printf("offset = %d\n", offset);
 
         // Update bytes_left and bytes_written and reset bytes_to_copy
         bytes_left -= bytes_to_copy;
@@ -664,7 +672,7 @@ int fs_read(int fd, void *buf, size_t count)
 	if (blocks_to_read == 1) {
         // printf("idx = %d\n", idx);
 		if (block_read(idx, bounce) == -1) {
-            perror("Block read");
+            // perror("Block read");
             return -1;
         }
         bytes_to_copy = min(count, size);
@@ -673,11 +681,12 @@ int fs_read(int fd, void *buf, size_t count)
 		memcpy(buf, bounce + offset, bytes_to_copy);
         // printf("Buf: %s\n", (char*)buf);
         bytes_read = bytes_to_copy;
-        fs_lseek(fd, offset + bytes_to_copy);
+        offset += bytes_to_copy;
+        FDT[fd].offset = offset;
 	} else { // More than one data block to be read
 		for (int i = 0; i < blocks_to_read && (size_t)bytes_read < count; i++) {
 			if (block_read(idx, bounce) == -1) {
-                perror("Block read");
+                // perror("Block read");
                 return -1;
             }
 			// First data block: offset possibly not aligned with beginning of block
@@ -696,109 +705,26 @@ int fs_read(int fd, void *buf, size_t count)
 			// Copy appropriate data into buffer
 			// memcpy((buf + bytes_read), ((offset % BLOCK_SIZE) + bounce), bytes_to_copy);
 			// Update bytes_read and bytes_left and reset bytes_to_copy
+
+            // Move the offset after the read
+            offset += bytes_to_copy;
+            FDT[fd].offset = offset;
+
 			bytes_read += bytes_to_copy;
 			bytes_left -= bytes_to_copy;
 			bytes_to_copy = 0;
-			// Move the offset after the read
-			fs_lseek(fd, offset + bytes_read);
-			offset = FDT[fd].offset;
+			
 			// Get the index of the next data block to be read
-			idx = FAT[idx - sb.total_data_blks];  
+			idx = FAT[idx - sb.data_blks_idx];  
             if (idx == FAT_EOC) {
                 break;
             }
-            idx += sb.total_data_blks;
+            idx += sb.data_blks_idx;
 		}
 	}
 
-	// for (int i = 0; bytes_read < count && idx != -1; i += bytes_read) {
-		// bytes_left = count - bytes_read;
-		// Read entire data block at idx into bounce
-		// block_read(idx, bounce);
-
-
-		// if ((FDT[fd].offset + bytes_left) % BLOCK_SIZE > 0) {
-		// 	// more block accesses needed
-		// 	// find nearest next block beginning index
-		// 	int next_block = ((FDT[fd].offset + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
-		// 	bytes_to_copy = next_block - FDT[fd].offset;
-		// }
-		// Case: offset aligned exactly with the beginning of a block
-		// if (FDT[fd].offset % BLOCK_SIZE == 0) {
-		// 	// Number of bytes left to read is at least BLOCK_SIZE many bytes
-		// 	if (bytes_left / BLOCK_SIZE >= 1) {
-		// 		bytes_to_copy = BLOCK_SIZE;
-		// 	} else {  // Number of bytes left to read is < BLOCK_SIZE
-		// 		bytes_to_copy = bytes_left;
-		// 	}
-		// } else { // Case: offset not aligned with beginning of block
-		// 	// Number of bytes left to read is at least BLOCK_SIZE many bytes
-		// 	if (bytes_left / BLOCK_SIZE >= 1) {
-		// 		bytes_to_copy = BLOCK_SIZE - (FDT[fd].offset % BLOCK_SIZE);
-		// 	} else {  // Number of bytes left to read is < BLOCK_SIZE
-		// 		bytes_to_copy = bytes_left;
-		// 	}
-		// }
-
-		// memcpy((buf + i), bounce, bytes_to_copy);
-		// fs_lseek(fd, FDT[fd].offset + bytes_to_copy);
-		// bytes_read += bytes_to_copy;
-		// bytes_left -= bytes_to_copy;
-		// bytes_to_copy = 0;
-
-		// Case: reading 
-	// 	if (FDT[fd].offset % BLOCK_SIZE > 0) {
-	// 		//Current position of the datablock
-	// 		int cur_position_datablock = 1;
-	// 		for (int i = 1; FDT[fd].offset > (i * BLOCK_SIZE); i++){
-	// 			cur_position_datablock++;
-	// 		}
-			
-	// 		//Checks if there are multiple blocks to read
-	// 		//int	traverse_datablocks = ((FDT[fd].offset - (cur_position_datablock * BLOCK_SIZE)) + count) / (BLOCK_SIZE + 1);
-			
-	// 		//Keep track of the data block idx
-	// 		int data_block_idx = FDT[fd].data_start_idx;
-	// 		int obtained_bytes = 0;
-	// 		//To store the bytes that are acutally read to the buf			
-	// 		char bounce_copy[count];
-	// 		for (int i =0; i < count; i ++){
-
-	// 			//Checks if the offset reachs the end of the datablock
-	// 			if (FDT[fd].offset > (cur_position_datablock * BLOCK_SIZE)){
-	// 				//Check if there is more datablocks in the file
-	// 				//If not then return the read bytes
-	// 				if(FAT[data_block_idx] == FAT_EOC){
-	// 					memcpy(buf, bounce_copy, sizeof(bounce_copy));
-	// 					return i;
-	// 				}
-	// 				else{
-	// 					block_read(get_data_block_idx(fd), bounce);
-	// 					//traverse_datablocks--;
-	// 					cur_position_datablock++;
-	// 					data_block_idx = FAT[data_block_idx];
-	// 				}
-	// 			}
-	// 		bounce_copy[i] = bounce[(FDT[fd].offset)];
-	// 		fs_lseek(fd,(FDT[fd].offset + 1));
-	// 		obtained_bytes++;
-	// 		}
-
-	// 		memcpy(buf, bounce_copy, sizeof(bounce_copy));
-	// 		return obtained_bytes;
-	// 	}
-	// }
-
-	//For all cases:
-	//buf needs to be the one to have all the data
-	//FIXME: Updating the offset to the number of byets that were acutally read
-	// FDT[fd].offset = FDT[fd].offset + bytes_read;
-
-
 
     return bytes_read;
-	//After the function is done reading
-	//Need to set the buffer to the next available data pointer??
 }
 
 

@@ -32,7 +32,6 @@ int main(int argc, char *argv[])
     /* Print info about disk */
     ret = fs_info();
     ASSERT(!ret, "fs_info");
-    printf("FIXME: reminder - fs_info incomplete\n");
 
 	// /* Open file */
 	// fd = fs_open("myfile");

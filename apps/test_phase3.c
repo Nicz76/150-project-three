@@ -28,12 +28,10 @@ int main(int argc, char *argv[])
 	diskname = argv[1];
 	ret = fs_mount(diskname);
 	ASSERT(!ret, "fs_mount");
-	printf("Mounted successfully\n");
 
     /* Print info about disk */
     ret = fs_info();
     ASSERT(!ret, "fs_info");
-	printf("Info'd successfully\n");
 
 	/* Open file */
 	fd = fs_open("myfile");
